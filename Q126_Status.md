@@ -135,6 +135,7 @@ Every morning, answer these:
 2. [ ] Build channel attribution into Command Center dashboard (deep work)
 3. [ ] Pull sales bot conversation data for landing page insights
 4. [ ] Check in with Keren: what's running, daily spend, CPA
+5. [ ] Test Roster Locking and give feedback to Peter
 
 ### Jan 26
 - Built Q126 Command Center dashboard with targets
