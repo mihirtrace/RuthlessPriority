@@ -438,6 +438,35 @@
   }
   .summary-bar span { color: var(--text); font-weight: 600; }
 
+  /* --- Encouragement attached to task --- */
+  .task-encouragements {
+    margin: 8px 0 0 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .task-encouragement {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--teal);
+    background: rgba(24,146,154,0.08);
+    border-radius: 8px;
+    padding: 4px 10px;
+    animation: fadeIn 0.3s ease-out;
+  }
+  .task-encouragement .enc-from {
+    font-weight: 600;
+  }
+  .task-encouragement .enc-msg {
+    font-style: italic;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
   @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
@@ -501,7 +530,7 @@ let roomName = '';
 let tasksSet = false;
 
 // Local task state
-let tasks = []; // { name, elapsed, target, running, done }
+let tasks = []; // { name, elapsed, target, running, done, encouragements: [{from, message}] }
 let timerInterval = null;
 
 // Room state from server
@@ -536,7 +565,7 @@ function join() {
       .then(data => {
         if (data.priorities && data.priorities.length > 0) {
           tasks = data.priorities.map(name => ({
-            name, elapsed: 0, target: 0, running: false, done: false,
+            name, elapsed: 0, target: 0, running: false, done: false, encouragements: [],
           }));
           tasksSet = true;
           renderMyTasks();
@@ -573,10 +602,15 @@ function connect() {
     }
 
     if (msg.type === 'task_completed') {
-      showEncouragePrompt(msg.userId, msg.userName, msg.taskName);
+      showEncouragePrompt(msg.userId, msg.userName, msg.taskName, msg.taskIndex);
     }
 
     if (msg.type === 'encouragement') {
+      // Attach encouragement to the specific task
+      if (typeof msg.taskIndex === 'number' && tasks[msg.taskIndex]) {
+        tasks[msg.taskIndex].encouragements.push({ from: msg.from, message: msg.message });
+        renderMyTasks();
+      }
       showToast(`${msg.from}: "${msg.message}"`);
     }
   };
@@ -594,12 +628,13 @@ function sendTasksToServer() {
   }));
 }
 
-function sendTaskDone(taskName) {
+function sendTaskDone(taskName, taskIndex) {
   if (!ws || ws.readyState !== 1) return;
   ws.send(JSON.stringify({
     type: 'task_done',
     tasks: tasks.map(t => ({ name: t.name, elapsed: t.elapsed, target: t.target, running: t.running, done: t.done })),
     taskName,
+    taskIndex,
   }));
 }
 
@@ -619,7 +654,7 @@ function setTasks() {
   const raw = document.getElementById('taskTextarea').value.trim();
   if (!raw) return;
   const lines = raw.split('\n').map(l => l.replace(/^\d+[\.\)]\s*/, '').trim()).filter(Boolean);
-  tasks = lines.map(name => ({ name, elapsed: 0, target: 0, running: false, done: false }));
+  tasks = lines.map(name => ({ name, elapsed: 0, target: 0, running: false, done: false, encouragements: [] }));
   tasksSet = true;
   renderTaskEntry();
   renderMyTasks();
@@ -662,6 +697,13 @@ function renderMyTasks() {
       progressHtml = `<div class="progress-wrap"><div class="progress-fill" style="width:${pct}%"></div></div>`;
     }
 
+    let encourageHtml = '';
+    if (t.encouragements && t.encouragements.length > 0) {
+      encourageHtml = `<div class="task-encouragements">
+        ${t.encouragements.map(e => `<div class="task-encouragement"><span class="enc-from">${esc(e.from)}</span> <span class="enc-msg">"${esc(e.message)}"</span></div>`).join('')}
+      </div>`;
+    }
+
     div.innerHTML = `
       <div class="task-row">
         <div class="task-num">${i + 1}</div>
@@ -671,6 +713,7 @@ function renderMyTasks() {
       <div class="task-timer">${timerText}</div>
       ${controlsHtml}
       ${progressHtml}
+      ${encourageHtml}
     `;
     container.appendChild(div);
   });
@@ -712,7 +755,7 @@ function doneTask(i) {
   tasks[i].done = true;
   clearInterval(timerInterval);
   renderMyTasks();
-  sendTaskDone(tasks[i].name);
+  sendTaskDone(tasks[i].name, i);
 }
 
 function resetTask(i) {
@@ -772,14 +815,14 @@ function renderTeammates() {
 }
 
 // --- Encouragement ---
-function showEncouragePrompt(userId, userName, taskName) {
+function showEncouragePrompt(userId, userName, taskName, taskIndex) {
   const container = document.getElementById('encourageContainer');
   const div = document.createElement('div');
   div.className = 'encourage-prompt';
   div.innerHTML = `
     <p><strong>${esc(userName)}</strong> just finished:<br>"${esc(taskName)}"</p>
     <div class="encourage-buttons">
-      ${ENCOURAGE_MSGS.map(m => `<button class="encourage-btn" onclick="sendEncourage('${userId}','${esc(m)}',this)">${m}</button>`).join('')}
+      ${ENCOURAGE_MSGS.map(m => `<button class="encourage-btn" onclick="sendEncourage('${userId}','${esc(m)}',${taskIndex},this)">${m}</button>`).join('')}
       <button class="encourage-dismiss" onclick="this.closest('.encourage-prompt').remove()">Dismiss</button>
     </div>
   `;
@@ -787,9 +830,9 @@ function showEncouragePrompt(userId, userName, taskName) {
   setTimeout(() => { if (div.parentNode) div.remove(); }, 15000);
 }
 
-function sendEncourage(toUserId, message, btn) {
+function sendEncourage(toUserId, message, taskIndex, btn) {
   if (!ws || ws.readyState !== 1) return;
-  ws.send(JSON.stringify({ type: 'encourage', toUserId, message }));
+  ws.send(JSON.stringify({ type: 'encourage', toUserId, message, taskIndex }));
   const prompt = btn.closest('.encourage-prompt');
   if (prompt) prompt.remove();
 }

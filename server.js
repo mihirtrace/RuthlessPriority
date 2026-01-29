@@ -121,6 +121,7 @@ wss.on('connection', (ws) => {
         userId,
         userName: user.name,
         taskName: msg.taskName,
+        taskIndex: msg.taskIndex,
       });
       Object.entries(room.users).forEach(([id, u]) => {
         if (id !== userId && u.ws.readyState === 1) {
@@ -133,7 +134,17 @@ wss.on('connection', (ws) => {
     if (msg.type === 'encourage' && currentRoom) {
       const user = rooms[currentRoom]?.users[userId];
       if (user) {
-        broadcastEncouragement(currentRoom, user.name, msg.toUserId, msg.message);
+        // Send encouragement with task index so it attaches to the right task
+        const room = rooms[currentRoom];
+        const target = room.users[msg.toUserId];
+        if (target && target.ws.readyState === 1) {
+          target.ws.send(JSON.stringify({
+            type: 'encouragement',
+            from: user.name,
+            message: msg.message,
+            taskIndex: msg.taskIndex,
+          }));
+        }
       }
     }
   });
