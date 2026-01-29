@@ -131,6 +131,21 @@ wss.on('connection', (ws) => {
       broadcastRoom(currentRoom);
     }
 
+    if (msg.type === 'kick_user' && currentRoom) {
+      // Only allow the room creator (first joiner / "mihir") to kick
+      const kicker = rooms[currentRoom]?.users[userId];
+      if (kicker && kicker.name.toLowerCase() === 'mihir') {
+        const targetId = msg.targetUserId;
+        const target = rooms[currentRoom]?.users[targetId];
+        if (target) {
+          target.ws.send(JSON.stringify({ type: 'kicked' }));
+          target.ws.close();
+          delete rooms[currentRoom].users[targetId];
+          broadcastRoom(currentRoom);
+        }
+      }
+    }
+
     if (msg.type === 'encourage' && currentRoom) {
       const user = rooms[currentRoom]?.users[userId];
       if (user) {
