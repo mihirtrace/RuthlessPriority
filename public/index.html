@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ruthless Priorities</title>
+<style>
+  :root {
+    --bg: #0e0e0e;
+    --card: #1a1a1a;
+    --card-active: #1e2a2a;
+    --text: #e0e0e0;
+    --muted: #777;
+    --teal: #18929A;
+    --teal-dim: #0f6068;
+    --green: #27ae60;
+    --border: #2a2a2a;
+    --danger: #c0392b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* --- Join Screen --- */
+  .join-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  .join-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px;
+    max-width: 400px;
+    width: 100%;
+  }
+  .join-box h1 {
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .join-box p {
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 24px;
+  }
+  .join-box label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .join-box input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-size: 16px;
+    font-family: inherit;
+    margin-bottom: 16px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .join-box input:focus { border-color: var(--teal); }
+  .join-box input::placeholder { color: #444; }
+  .join-box .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 20px;
+    cursor: pointer;
+  }
+  .join-box .checkbox-row input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: var(--teal);
+  }
+  .join-box .checkbox-row span {
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .btn-join {
+    width: 100%;
+    background: var(--teal);
+    color: #fff;
+    font-family: inherit;
+    font-size: 16px;
+    font-weight: 600;
+    border: none;
+    border-radius: 24px;
+    padding: 14px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-join:hover { background: var(--teal-dim); }
+
+  /* --- App Screen --- */
+  .app-screen { display: none; padding: 24px 20px; }
+  .app-screen.visible { display: block; }
+  .app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+  .app-header h1 {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .room-badge {
+    font-size: 12px;
+    color: var(--teal);
+    background: rgba(24,146,154,0.1);
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-weight: 600;
+  }
+  .columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  @media (max-width: 768px) {
+    .columns { grid-template-columns: 1fr; }
+  }
+  .col-header {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+  }
+
+  /* --- Task Entry --- */
+  .task-entry {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .task-entry textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 14px;
+    resize: vertical;
+    min-height: 100px;
+    outline: none;
+    margin-bottom: 8px;
+  }
+  .task-entry textarea:focus { border-color: var(--teal); }
+  .task-entry textarea::placeholder { color: #444; }
+  .task-entry .hint {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+  .btn-set {
+    background: var(--teal);
+    color: #fff;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    border: none;
+    border-radius: 20px;
+    padding: 8px 20px;
+    cursor: pointer;
+  }
+  .btn-set:hover { background: var(--teal-dim); }
+
+  /* --- Task Card --- */
+  .task {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 10px;
+    transition: all 0.2s;
+  }
+  .task.active {
+    background: var(--card-active);
+    border-color: var(--teal);
+    box-shadow: 0 0 20px rgba(24,146,154,0.08);
+  }
+  .task.done { opacity: 0.4; }
+  .task.done .task-name { text-decoration: line-through; }
+  .task-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .task-num {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--teal);
+    min-width: 18px;
+    padding-top: 2px;
+  }
+  .task-name {
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.4;
+    flex: 1;
+  }
+  .task-timer {
+    font-size: 28px;
+    font-weight: 300;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 1px;
+    margin: 10px 0 8px 28px;
+  }
+  .presets {
+    display: flex;
+    gap: 5px;
+    margin: 0 0 10px 28px;
+    flex-wrap: wrap;
+  }
+  .preset {
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 500;
+    background: #252525;
+    color: var(--muted);
+    border: 1px solid #333;
+    border-radius: 14px;
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .preset:hover { color: var(--text); border-color: var(--teal); }
+  .preset.sel { background: var(--teal-dim); color: #fff; border-color: var(--teal); }
+  .controls {
+    display: flex;
+    gap: 6px;
+    margin-left: 28px;
+  }
+  .btn {
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    border: none;
+    border-radius: 16px;
+    padding: 6px 16px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-start { background: var(--teal); color: #fff; }
+  .btn-start:hover { background: var(--teal-dim); }
+  .btn-pause { background: #333; color: var(--text); }
+  .btn-done-task { background: transparent; color: var(--green); border: 1px solid var(--green); }
+  .btn-done-task:hover { background: rgba(39,174,96,0.1); }
+  .btn-reset { background: transparent; color: var(--muted); padding: 6px 10px; }
+  .progress-wrap {
+    height: 3px;
+    background: #252525;
+    border-radius: 2px;
+    margin: 10px 0 0 28px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--teal);
+    border-radius: 2px;
+    transition: width 1s linear;
+  }
+
+  /* --- Teammate Section --- */
+  .teammate-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .teammate-name {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .online-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    display: inline-block;
+  }
+  .mate-task {
+    padding: 8px 0;
+    border-bottom: 1px solid #222;
+  }
+  .mate-task:last-child { border-bottom: none; }
+  .mate-task-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mate-task-num {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--teal);
+    min-width: 16px;
+  }
+  .mate-task-name {
+    font-size: 14px;
+    flex: 1;
+  }
+  .mate-task.done .mate-task-name { text-decoration: line-through; opacity: 0.5; }
+  .mate-task.active .mate-task-name { color: #fff; }
+  .mate-timer {
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .mate-task.active .mate-timer { color: var(--teal); }
+  .no-teammates {
+    color: var(--muted);
+    font-size: 14px;
+    padding: 20px;
+    text-align: center;
+  }
+
+  /* --- Encouragement Overlay --- */
+  .encourage-prompt {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--card);
+    border: 1px solid var(--teal);
+    border-radius: 16px;
+    padding: 20px;
+    max-width: 340px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    z-index: 100;
+    animation: slideUp 0.3s ease-out;
+  }
+  @keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  .encourage-prompt p {
+    font-size: 14px;
+    margin-bottom: 12px;
+    line-height: 1.4;
+  }
+  .encourage-prompt strong { color: var(--teal); }
+  .encourage-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .encourage-btn {
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    background: var(--teal);
+    color: #fff;
+    border: none;
+    border-radius: 16px;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .encourage-btn:hover { background: var(--teal-dim); }
+  .encourage-dismiss {
+    font-family: inherit;
+    font-size: 12px;
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    cursor: pointer;
+    padding: 6px 10px;
+  }
+
+  /* --- Toast --- */
+  .toast {
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-20px);
+    background: var(--card);
+    border: 1px solid var(--teal);
+    border-radius: 12px;
+    padding: 16px 24px;
+    font-size: 15px;
+    font-weight: 600;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    z-index: 200;
+    opacity: 0;
+    transition: all 0.3s ease-out;
+    pointer-events: none;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  .toast .from { color: var(--teal); }
+
+  /* --- Summary --- */
+  .summary-bar {
+    max-width: 1100px;
+    margin: 20px auto 0;
+    padding: 12px 20px;
+    background: var(--card);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--muted);
+    text-align: center;
+  }
+  .summary-bar span { color: var(--text); font-weight: 600; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .task.active .task-num { animation: pulse 2s ease-in-out infinite; }
+</style>
+</head>
+<body>
+
+<!-- Join Screen -->
+<div class="join-screen" id="joinScreen">
+  <div class="join-box">
+    <h1>Ruthless Priorities</h1>
+    <p>Enter your name and room to start focusing with your team.</p>
+    <label>Your Name</label>
+    <input type="text" id="nameInput" placeholder="Mihir" autofocus>
+    <label>Room</label>
+    <input type="text" id="roomInput" placeholder="trace-team">
+    <label class="checkbox-row" id="autoLoadRow" style="display:none">
+      <input type="checkbox" id="autoLoadCheck">
+      <span>Auto-load my priorities from Q126 Status</span>
+    </label>
+    <button class="btn-join" id="joinBtn">Join Room</button>
+  </div>
+</div>
+
+<!-- App Screen -->
+<div class="app-screen" id="appScreen">
+  <div class="app-header">
+    <h1>Ruthless Priorities</h1>
+    <div class="room-badge" id="roomBadge"></div>
+  </div>
+  <div class="columns">
+    <div>
+      <div class="col-header">Your Priorities</div>
+      <div id="taskEntry"></div>
+      <div id="myTasks"></div>
+    </div>
+    <div>
+      <div class="col-header">Teammates</div>
+      <div id="teammates"></div>
+    </div>
+  </div>
+  <div class="summary-bar" id="summaryBar"></div>
+</div>
+
+<!-- Encouragement prompts container -->
+<div id="encourageContainer"></div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+const PRESETS = [5, 15, 25, 45, 60];
+const ENCOURAGE_MSGS = ["Crushed it", "Let's go", "Beast mode", "On fire", "Keep pushing"];
+
+let ws = null;
+let myUserId = null;
+let myName = '';
+let roomName = '';
+let tasksSet = false;
+
+// Local task state
+let tasks = []; // { name, elapsed, target, running, done }
+let timerInterval = null;
+
+// Room state from server
+let roomUsers = [];
+
+// --- Show auto-load checkbox if name is Mihir ---
+const nameInput = document.getElementById('nameInput');
+nameInput.addEventListener('input', () => {
+  const show = nameInput.value.trim().toLowerCase() === 'mihir';
+  document.getElementById('autoLoadRow').style.display = show ? 'flex' : 'none';
+});
+
+// --- Join ---
+document.getElementById('joinBtn').addEventListener('click', join);
+document.getElementById('nameInput').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('roomInput').focus(); });
+document.getElementById('roomInput').addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
+
+function join() {
+  myName = nameInput.value.trim() || 'Anonymous';
+  roomName = document.getElementById('roomInput').value.trim() || 'default';
+  const autoLoad = document.getElementById('autoLoadCheck').checked;
+
+  document.getElementById('joinScreen').style.display = 'none';
+  document.getElementById('appScreen').classList.add('visible');
+  document.getElementById('roomBadge').textContent = roomName;
+
+  connect();
+
+  if (autoLoad) {
+    fetch('/api/priorities/mihir')
+      .then(r => r.json())
+      .then(data => {
+        if (data.priorities && data.priorities.length > 0) {
+          tasks = data.priorities.map(name => ({
+            name, elapsed: 0, target: 0, running: false, done: false,
+          }));
+          tasksSet = true;
+          renderMyTasks();
+          sendTasksToServer();
+        } else {
+          renderTaskEntry();
+        }
+      })
+      .catch(() => renderTaskEntry());
+  } else {
+    renderTaskEntry();
+  }
+}
+
+// --- WebSocket ---
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}`);
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: 'join', room: roomName, name: myName }));
+  };
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+
+    if (msg.type === 'joined') {
+      myUserId = msg.userId;
+    }
+
+    if (msg.type === 'room_state') {
+      roomUsers = msg.users;
+      renderTeammates();
+    }
+
+    if (msg.type === 'task_completed') {
+      showEncouragePrompt(msg.userId, msg.userName, msg.taskName);
+    }
+
+    if (msg.type === 'encouragement') {
+      showToast(`${msg.from}: "${msg.message}"`);
+    }
+  };
+
+  ws.onclose = () => {
+    setTimeout(connect, 2000);
+  };
+}
+
+function sendTasksToServer() {
+  if (!ws || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({
+    type: 'update_tasks',
+    tasks: tasks.map(t => ({ name: t.name, elapsed: t.elapsed, target: t.target, running: t.running, done: t.done })),
+  }));
+}
+
+function sendTaskDone(taskName) {
+  if (!ws || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({
+    type: 'task_done',
+    tasks: tasks.map(t => ({ name: t.name, elapsed: t.elapsed, target: t.target, running: t.running, done: t.done })),
+    taskName,
+  }));
+}
+
+// --- Task Entry ---
+function renderTaskEntry() {
+  if (tasksSet) { document.getElementById('taskEntry').innerHTML = ''; return; }
+  document.getElementById('taskEntry').innerHTML = `
+    <div class="task-entry">
+      <textarea id="taskTextarea" placeholder="Enter your priorities for today, one per line..."></textarea>
+      <div class="hint">One priority per line. Be ruthless — only what matters today.</div>
+      <button class="btn-set" onclick="setTasks()">Lock In Priorities</button>
+    </div>
+  `;
+}
+
+function setTasks() {
+  const raw = document.getElementById('taskTextarea').value.trim();
+  if (!raw) return;
+  const lines = raw.split('\n').map(l => l.replace(/^\d+[\.\)]\s*/, '').trim()).filter(Boolean);
+  tasks = lines.map(name => ({ name, elapsed: 0, target: 0, running: false, done: false }));
+  tasksSet = true;
+  renderTaskEntry();
+  renderMyTasks();
+  sendTasksToServer();
+}
+
+// --- Render My Tasks ---
+function renderMyTasks() {
+  const container = document.getElementById('myTasks');
+  container.innerHTML = '';
+
+  tasks.forEach((t, i) => {
+    const div = document.createElement('div');
+    div.className = 'task' + (t.running ? ' active' : '') + (t.done ? ' done' : '');
+
+    let presetsHtml = '';
+    if (!t.done) {
+      presetsHtml = `<div class="presets">${PRESETS.map(m =>
+        `<button class="preset${t.target === m * 60 ? ' sel' : ''}" onclick="setTarget(${i},${m})">${m}m</button>`
+      ).join('')}</div>`;
+    }
+
+    let timerText = fmt(t.elapsed);
+    if (t.target > 0) timerText += ` / ${fmt(t.target)}`;
+
+    let controlsHtml = '';
+    if (!t.done) {
+      controlsHtml = `<div class="controls">
+        ${t.running
+          ? `<button class="btn btn-pause" onclick="pauseTask(${i})">Pause</button>`
+          : `<button class="btn btn-start" onclick="startTask(${i})">Start</button>`}
+        <button class="btn btn-done-task" onclick="doneTask(${i})">Done</button>
+        ${t.elapsed > 0 ? `<button class="btn btn-reset" onclick="resetTask(${i})">Reset</button>` : ''}
+      </div>`;
+    }
+
+    let progressHtml = '';
+    if (t.running && t.target > 0) {
+      const pct = Math.min(100, (t.elapsed / t.target) * 100);
+      progressHtml = `<div class="progress-wrap"><div class="progress-fill" style="width:${pct}%"></div></div>`;
+    }
+
+    div.innerHTML = `
+      <div class="task-row">
+        <div class="task-num">${i + 1}</div>
+        <div class="task-name">${esc(t.name)}</div>
+      </div>
+      ${!t.done ? presetsHtml : ''}
+      <div class="task-timer">${timerText}</div>
+      ${controlsHtml}
+      ${progressHtml}
+    `;
+    container.appendChild(div);
+  });
+
+  // Summary
+  const completed = tasks.filter(t => t.done).length;
+  const total = tasks.reduce((a, t) => a + t.elapsed, 0);
+  document.getElementById('summaryBar').innerHTML =
+    `<span>${completed}/${tasks.length}</span> completed &middot; <span>${fmt(total)}</span> total time`;
+}
+
+function startTask(i) {
+  tasks.forEach((t, j) => { t.running = j === i && !t.done; });
+  clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    const active = tasks.find(t => t.running);
+    if (active) {
+      active.elapsed++;
+      if (active.target > 0 && active.elapsed >= active.target) {
+        notifyBrowser(active.name);
+      }
+    }
+    renderMyTasks();
+    sendTasksToServer();
+  }, 1000);
+  renderMyTasks();
+  sendTasksToServer();
+}
+
+function pauseTask(i) {
+  tasks[i].running = false;
+  clearInterval(timerInterval);
+  renderMyTasks();
+  sendTasksToServer();
+}
+
+function doneTask(i) {
+  tasks[i].running = false;
+  tasks[i].done = true;
+  clearInterval(timerInterval);
+  renderMyTasks();
+  sendTaskDone(tasks[i].name);
+}
+
+function resetTask(i) {
+  tasks[i].elapsed = 0;
+  tasks[i].target = 0;
+  tasks[i].running = false;
+  clearInterval(timerInterval);
+  renderMyTasks();
+  sendTasksToServer();
+}
+
+function setTarget(i, minutes) {
+  tasks[i].target = minutes * 60;
+  renderMyTasks();
+  sendTasksToServer();
+}
+
+// --- Render Teammates ---
+function renderTeammates() {
+  const container = document.getElementById('teammates');
+  const others = roomUsers.filter(u => u.id !== myUserId);
+
+  if (others.length === 0) {
+    container.innerHTML = '<div class="no-teammates">No one else in this room yet.<br>Share the room name to invite teammates.</div>';
+    return;
+  }
+
+  container.innerHTML = '';
+  others.forEach(user => {
+    const card = document.createElement('div');
+    card.className = 'teammate-card';
+
+    let tasksHtml = '';
+    if (!user.tasks || user.tasks.length === 0) {
+      tasksHtml = '<div style="color:var(--muted);font-size:13px;">Setting up priorities...</div>';
+    } else {
+      tasksHtml = user.tasks.map((t, i) => {
+        const cls = t.done ? 'done' : (t.running ? 'active' : '');
+        let timer = fmt(t.elapsed);
+        if (t.target > 0) timer += ` / ${fmt(t.target)}`;
+        return `<div class="mate-task ${cls}">
+          <div class="mate-task-row">
+            <div class="mate-task-num">${i + 1}</div>
+            <div class="mate-task-name">${esc(t.name)}</div>
+            <div class="mate-timer">${timer}</div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    card.innerHTML = `
+      <div class="teammate-name"><span class="online-dot"></span> ${esc(user.name)}</div>
+      ${tasksHtml}
+    `;
+    container.appendChild(card);
+  });
+}
+
+// --- Encouragement ---
+function showEncouragePrompt(userId, userName, taskName) {
+  const container = document.getElementById('encourageContainer');
+  const div = document.createElement('div');
+  div.className = 'encourage-prompt';
+  div.innerHTML = `
+    <p><strong>${esc(userName)}</strong> just finished:<br>"${esc(taskName)}"</p>
+    <div class="encourage-buttons">
+      ${ENCOURAGE_MSGS.map(m => `<button class="encourage-btn" onclick="sendEncourage('${userId}','${esc(m)}',this)">${m}</button>`).join('')}
+      <button class="encourage-dismiss" onclick="this.closest('.encourage-prompt').remove()">Dismiss</button>
+    </div>
+  `;
+  container.appendChild(div);
+  setTimeout(() => { if (div.parentNode) div.remove(); }, 15000);
+}
+
+function sendEncourage(toUserId, message, btn) {
+  if (!ws || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({ type: 'encourage', toUserId, message }));
+  const prompt = btn.closest('.encourage-prompt');
+  if (prompt) prompt.remove();
+}
+
+function showToast(text) {
+  const toast = document.getElementById('toast');
+  toast.innerHTML = text;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 4000);
+}
+
+// --- Helpers ---
+function fmt(secs) {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function esc(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+function notifyBrowser(taskName) {
+  if (Notification.permission === 'granted') {
+    new Notification('Timer done', { body: taskName });
+  }
+}
+
+if ('Notification' in window && Notification.permission === 'default') {
+  Notification.requestPermission();
+}
+</script>
+</body>
+</html>

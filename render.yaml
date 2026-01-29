@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: ruthless-priorities
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: STATUS_FILE
+        value: /opt/render/project/src/Q126_Status.md
