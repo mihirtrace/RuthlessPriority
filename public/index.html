@@ -131,6 +131,19 @@
     border-radius: 12px;
     font-weight: 600;
   }
+  .btn-share {
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    background: transparent;
+    color: var(--teal);
+    border: 1px solid var(--teal);
+    border-radius: 16px;
+    padding: 4px 14px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-share:hover { background: rgba(24,146,154,0.1); }
   .columns {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -652,7 +665,10 @@
 <div class="app-screen" id="appScreen">
   <div class="app-header">
     <h1>Ruthless Priorities</h1>
-    <div class="room-badge" id="roomBadge"></div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div class="room-badge" id="roomBadge"></div>
+      <button class="btn-share" onclick="shareRoom()">Share Link</button>
+    </div>
   </div>
   <div class="columns">
     <div>
@@ -690,6 +706,10 @@ let autoLoadRequested = false;
 
 // Server-driven state
 let roomMembers = []; // from room_state broadcasts
+
+// --- Pre-fill room from URL query param ---
+const urlRoom = new URLSearchParams(location.search).get('room');
+if (urlRoom) document.getElementById('roomInput').value = urlRoom;
 
 // --- Show auto-load checkbox if name is Mihir ---
 const nameInput = document.getElementById('nameInput');
@@ -912,17 +932,37 @@ function renderMyTasks() {
     `<span>${completed}/${tasks.length}</span> completed &middot; <span>${fmt(total)}</span> total time`;
 }
 
+let pendingAddTask = null;
+
 function addTask() {
   const input = document.getElementById('addTaskInput');
   if (!input) return;
   const name = input.value.trim();
   if (!name) return;
-  const confirmed = confirm(`Is "${name}" truly a ruthless priority today?\n\nThis isn't a to-do list. Only add what absolutely must happen today.`);
-  if (!confirmed) return;
-  if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type: 'add_task', name }));
-  }
+  // Store the task name and clear input immediately
+  pendingAddTask = name;
   input.value = '';
+  // Use setTimeout so the confirm doesn't block the WebSocket
+  setTimeout(() => {
+    const confirmed = confirm(`Is "${name}" truly a ruthless priority today?\n\nThis isn't a to-do list. Only add what absolutely must happen today.`);
+    if (confirmed && pendingAddTask) {
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: 'add_task', name: pendingAddTask }));
+      }
+    }
+    pendingAddTask = null;
+  }, 0);
+}
+
+function shareRoom() {
+  const url = `${location.origin}?room=${encodeURIComponent(roomName)}`;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(url).then(() => {
+      showToast('Room link copied to clipboard!');
+    });
+  } else {
+    prompt('Copy this link to share:', url);
+  }
 }
 
 // --- Commands: send actions to server ---
