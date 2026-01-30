@@ -368,6 +368,23 @@
     transition: all 0.15s;
   }
   .btn-remove-teammate:hover { background: rgba(192,57,43,0.1); }
+  .btn-buy-dinner {
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    background: transparent;
+    color: #e67e22;
+    border: 1px solid #e67e22;
+    border-radius: 12px;
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .btn-buy-dinner:hover { background: rgba(230,126,34,0.1); }
   .no-teammates {
     color: var(--muted);
     font-size: 14px;
@@ -913,6 +930,7 @@ function renderTeammates() {
 
     const isMihir = myName.toLowerCase() === 'mihir';
     const removeBtn = isMihir ? `<button class="btn-remove-teammate" onclick="kickUser('${member.key}')">Remove</button>` : '';
+    const dinnerBtn = `<a class="btn-buy-dinner" href="https://www.doordash.com/gift-cards/" target="_blank" rel="noopener">🍕 Buy Dinner</a>`;
     const statusLabel = member.online ? '' : ' <span style="font-weight:400;color:var(--muted);font-size:12px;">(away)</span>';
     const dotClass = member.online ? 'on' : 'off';
     const mPts = member.points || 0;
@@ -923,7 +941,7 @@ function renderTeammates() {
     </span>`;
 
     card.innerHTML = `
-      <div class="teammate-name"><span class="online-dot ${dotClass}"></span> ${esc(member.name)}${statusLabel}${rewardsBadges}${removeBtn}</div>
+      <div class="teammate-name"><span class="online-dot ${dotClass}"></span> ${esc(member.name)}${statusLabel}${rewardsBadges}${dinnerBtn}${removeBtn}</div>
       ${tasksHtml}
     `;
     container.appendChild(card);
