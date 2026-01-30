@@ -191,6 +191,38 @@
     cursor: pointer;
   }
   .btn-set:hover { background: var(--teal-dim); }
+  .add-task-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .add-task-row input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .add-task-row input:focus { border-color: var(--teal); }
+  .add-task-row input::placeholder { color: #444; }
+  .btn-add-task {
+    background: var(--teal);
+    color: #fff;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    border: none;
+    border-radius: 20px;
+    padding: 8px 16px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-add-task:hover { background: var(--teal-dim); }
 
   /* --- Task Card --- */
   .task {
@@ -864,11 +896,33 @@ function renderMyTasks() {
     container.appendChild(div);
   });
 
+  // Add task row
+  const addRow = document.createElement('div');
+  addRow.className = 'add-task-row';
+  addRow.innerHTML = `
+    <input type="text" id="addTaskInput" placeholder="Add another priority..." onkeydown="if(event.key==='Enter')addTask()">
+    <button class="btn-add-task" onclick="addTask()">+ Add</button>
+  `;
+  container.appendChild(addRow);
+
   // Summary
   const completed = tasks.filter(t => t.done).length;
   const total = tasks.reduce((a, t) => a + t.elapsed, 0);
   document.getElementById('summaryBar').innerHTML =
     `<span>${completed}/${tasks.length}</span> completed &middot; <span>${fmt(total)}</span> total time`;
+}
+
+function addTask() {
+  const input = document.getElementById('addTaskInput');
+  if (!input) return;
+  const name = input.value.trim();
+  if (!name) return;
+  const confirmed = confirm(`Is "${name}" truly a ruthless priority today?\n\nThis isn't a to-do list. Only add what absolutely must happen today.`);
+  if (!confirmed) return;
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'add_task', name }));
+  }
+  input.value = '';
 }
 
 // --- Commands: send actions to server ---

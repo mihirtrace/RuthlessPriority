@@ -165,8 +165,6 @@ wss.on('connection', (ws) => {
       const room = rooms[currentRoom];
       const member = room?.members[memberKey];
       if (member) {
-        // Only set tasks if member has no tasks yet (first time)
-        // or explicitly resetting
         member.tasks = msg.tasks.map(t => ({
           name: t.name,
           elapsed: t.elapsed || 0,
@@ -175,6 +173,22 @@ wss.on('connection', (ws) => {
           done: false,
           encouragements: [],
         }));
+        broadcastRoom(currentRoom);
+      }
+    }
+
+    if (msg.type === 'add_task' && currentRoom && memberKey) {
+      const room = rooms[currentRoom];
+      const member = room?.members[memberKey];
+      if (member && msg.name && msg.name.trim()) {
+        member.tasks.push({
+          name: msg.name.trim(),
+          elapsed: 0,
+          target: 0,
+          running: false,
+          done: false,
+          encouragements: [],
+        });
         broadcastRoom(currentRoom);
       }
     }
