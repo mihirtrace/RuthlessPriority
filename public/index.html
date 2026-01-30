@@ -297,6 +297,7 @@
     padding: 16px;
     margin-bottom: 12px;
   }
+  .teammate-card.offline { opacity: 0.6; }
   .teammate-name {
     font-size: 14px;
     font-weight: 700;
@@ -309,9 +310,10 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--green);
     display: inline-block;
   }
+  .online-dot.on { background: var(--green); }
+  .online-dot.off { background: var(--muted); }
   .mate-task {
     padding: 8px 0;
     border-bottom: 1px solid #222;
@@ -341,6 +343,17 @@
     font-weight: 500;
   }
   .mate-task.active .mate-timer { color: var(--teal); }
+  .mate-encouragements {
+    margin: 4px 0 0 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .mate-enc {
+    font-size: 11px;
+    color: var(--teal);
+    opacity: 0.8;
+  }
   .btn-remove-teammate {
     font-family: inherit;
     font-size: 11px;
@@ -436,7 +449,6 @@
     opacity: 1;
     transform: translateX(-50%) translateY(0);
   }
-  .toast .from { color: var(--teal); }
 
   /* --- Summary --- */
   .summary-bar {
@@ -470,12 +482,8 @@
     padding: 4px 10px;
     animation: fadeIn 0.3s ease-out;
   }
-  .task-encouragement .enc-from {
-    font-weight: 600;
-  }
-  .task-encouragement .enc-msg {
-    font-style: italic;
-  }
+  .task-encouragement .enc-from { font-weight: 600; }
+  .task-encouragement .enc-msg { font-style: italic; }
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(-4px); }
     to { opacity: 1; transform: translateY(0); }
@@ -538,17 +546,14 @@ const PRESETS = [5, 15, 25, 45, 60];
 const ENCOURAGE_MSGS = ["Crushed it", "Let's go", "Beast mode", "On fire", "Keep pushing"];
 
 let ws = null;
-let myUserId = null;
+let myMemberKey = null;
 let myName = '';
 let roomName = '';
 let tasksSet = false;
+let autoLoadRequested = false;
 
-// Local task state
-let tasks = []; // { name, elapsed, target, running, done, encouragements: [{from, message}] }
-let timerInterval = null;
-
-// Room state from server
-let roomUsers = [];
+// Server-driven state
+let roomMembers = []; // from room_state broadcasts
 
 // --- Show auto-load checkbox if name is Mihir ---
 const nameInput = document.getElementById('nameInput');
@@ -565,33 +570,13 @@ document.getElementById('roomInput').addEventListener('keydown', e => { if (e.ke
 function join() {
   myName = nameInput.value.trim() || 'Anonymous';
   roomName = document.getElementById('roomInput').value.trim() || 'default';
-  const autoLoad = document.getElementById('autoLoadCheck').checked;
+  autoLoadRequested = document.getElementById('autoLoadCheck').checked;
 
   document.getElementById('joinScreen').style.display = 'none';
   document.getElementById('appScreen').classList.add('visible');
   document.getElementById('roomBadge').textContent = roomName;
 
   connect();
-
-  if (autoLoad) {
-    fetch('/api/priorities/mihir')
-      .then(r => r.json())
-      .then(data => {
-        if (data.priorities && data.priorities.length > 0) {
-          tasks = data.priorities.map(name => ({
-            name, elapsed: 0, target: 0, running: false, done: false, encouragements: [],
-          }));
-          tasksSet = true;
-          renderMyTasks();
-          sendTasksToServer();
-        } else {
-          renderTaskEntry();
-        }
-      })
-      .catch(() => renderTaskEntry());
-  } else {
-    renderTaskEntry();
-  }
 }
 
 // --- WebSocket ---
@@ -607,16 +592,43 @@ function connect() {
     const msg = JSON.parse(e.data);
 
     if (msg.type === 'joined') {
-      myUserId = msg.userId;
+      myMemberKey = msg.memberKey;
+
+      if (msg.yourTasks && msg.yourTasks.length > 0) {
+        // Returning user — already have tasks on server
+        tasksSet = true;
+        renderTaskEntry();
+        renderMyTasks();
+      } else if (autoLoadRequested) {
+        // New user with auto-load
+        fetch('/api/priorities/mihir')
+          .then(r => r.json())
+          .then(data => {
+            if (data.priorities && data.priorities.length > 0) {
+              tasksSet = true;
+              ws.send(JSON.stringify({
+                type: 'set_tasks',
+                tasks: data.priorities.map(name => ({ name })),
+              }));
+              renderTaskEntry();
+            } else {
+              renderTaskEntry();
+            }
+          })
+          .catch(() => renderTaskEntry());
+      } else {
+        renderTaskEntry();
+      }
     }
 
     if (msg.type === 'room_state') {
-      roomUsers = msg.users;
+      roomMembers = msg.members;
+      renderMyTasks();
       renderTeammates();
     }
 
     if (msg.type === 'task_completed') {
-      showEncouragePrompt(msg.userId, msg.userName, msg.taskName, msg.taskIndex);
+      showEncouragePrompt(msg.memberKey, msg.memberName, msg.taskName, msg.taskIndex);
     }
 
     if (msg.type === 'kicked') {
@@ -628,11 +640,6 @@ function connect() {
     }
 
     if (msg.type === 'encouragement') {
-      // Attach encouragement to the specific task
-      if (typeof msg.taskIndex === 'number' && tasks[msg.taskIndex]) {
-        tasks[msg.taskIndex].encouragements.push({ from: msg.from, message: msg.message });
-        renderMyTasks();
-      }
       showToast(`${msg.from}: "${msg.message}"`);
     }
   };
@@ -642,22 +649,10 @@ function connect() {
   };
 }
 
-function sendTasksToServer() {
-  if (!ws || ws.readyState !== 1) return;
-  ws.send(JSON.stringify({
-    type: 'update_tasks',
-    tasks: tasks.map(t => ({ name: t.name, elapsed: t.elapsed, target: t.target, running: t.running, done: t.done })),
-  }));
-}
-
-function sendTaskDone(taskName, taskIndex) {
-  if (!ws || ws.readyState !== 1) return;
-  ws.send(JSON.stringify({
-    type: 'task_done',
-    tasks: tasks.map(t => ({ name: t.name, elapsed: t.elapsed, target: t.target, running: t.running, done: t.done })),
-    taskName,
-    taskIndex,
-  }));
+// --- Get my tasks from server state ---
+function getMyTasks() {
+  const me = roomMembers.find(m => m.key === myMemberKey);
+  return me ? me.tasks : [];
 }
 
 // --- Task Entry ---
@@ -676,18 +671,23 @@ function setTasks() {
   const raw = document.getElementById('taskTextarea').value.trim();
   if (!raw) return;
   const lines = raw.split('\n').map(l => l.replace(/^\d+[\.\)]\s*/, '').trim()).filter(Boolean);
-  tasks = lines.map(name => ({ name, elapsed: 0, target: 0, running: false, done: false, encouragements: [] }));
   tasksSet = true;
   renderTaskEntry();
-  renderMyTasks();
-  sendTasksToServer();
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({
+      type: 'set_tasks',
+      tasks: lines.map(name => ({ name })),
+    }));
+  }
 }
 
-// --- Render My Tasks ---
+// --- Render My Tasks (from server state) ---
 function renderMyTasks() {
   const container = document.getElementById('myTasks');
-  container.innerHTML = '';
+  const tasks = getMyTasks();
+  if (tasks.length === 0) { container.innerHTML = ''; return; }
 
+  container.innerHTML = '';
   tasks.forEach((t, i) => {
     const div = document.createElement('div');
     div.className = 'task' + (t.running ? ' active' : '') + (t.done ? ' done' : '');
@@ -695,7 +695,7 @@ function renderMyTasks() {
     let presetsHtml = '';
     if (!t.done) {
       presetsHtml = `<div class="presets">${PRESETS.map(m =>
-        `<button class="preset${t.target === m * 60 ? ' sel' : ''}" onclick="setTarget(${i},${m})">${m}m</button>`
+        `<button class="preset${t.target === m * 60 ? ' sel' : ''}" onclick="cmdSetTarget(${i},${m})">${m}m</button>`
       ).join('')}</div>`;
     }
 
@@ -706,10 +706,10 @@ function renderMyTasks() {
     if (!t.done) {
       controlsHtml = `<div class="controls">
         ${t.running
-          ? `<button class="btn btn-pause" onclick="pauseTask(${i})">Pause</button>`
-          : `<button class="btn btn-start" onclick="startTask(${i})">Start</button>`}
-        <button class="btn btn-done-task" onclick="doneTask(${i})">Done</button>
-        ${t.elapsed > 0 ? `<button class="btn btn-reset" onclick="resetTask(${i})">Reset</button>` : ''}
+          ? `<button class="btn btn-pause" onclick="cmdPause(${i})">Pause</button>`
+          : `<button class="btn btn-start" onclick="cmdStart(${i})">Start</button>`}
+        <button class="btn btn-done-task" onclick="cmdDone(${i})">Done</button>
+        ${t.elapsed > 0 ? `<button class="btn btn-reset" onclick="cmdReset(${i})">Reset</button>` : ''}
       </div>`;
     }
 
@@ -747,58 +747,27 @@ function renderMyTasks() {
     `<span>${completed}/${tasks.length}</span> completed &middot; <span>${fmt(total)}</span> total time`;
 }
 
-function startTask(i) {
-  tasks.forEach((t, j) => { t.running = j === i && !t.done; });
-  clearInterval(timerInterval);
-  timerInterval = setInterval(() => {
-    const active = tasks.find(t => t.running);
-    if (active) {
-      active.elapsed++;
-      if (active.target > 0 && active.elapsed >= active.target) {
-        notifyBrowser(active.name);
-      }
-    }
-    renderMyTasks();
-    sendTasksToServer();
-  }, 1000);
-  renderMyTasks();
-  sendTasksToServer();
+// --- Commands: send actions to server ---
+function cmdStart(i) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'start_task', taskIndex: i }));
 }
-
-function pauseTask(i) {
-  tasks[i].running = false;
-  clearInterval(timerInterval);
-  renderMyTasks();
-  sendTasksToServer();
+function cmdPause(i) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'pause_task', taskIndex: i }));
 }
-
-function doneTask(i) {
-  tasks[i].running = false;
-  tasks[i].done = true;
-  clearInterval(timerInterval);
-  renderMyTasks();
-  sendTaskDone(tasks[i].name, i);
+function cmdDone(i) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'done_task', taskIndex: i }));
 }
-
-function resetTask(i) {
-  tasks[i].elapsed = 0;
-  tasks[i].target = 0;
-  tasks[i].running = false;
-  clearInterval(timerInterval);
-  renderMyTasks();
-  sendTasksToServer();
+function cmdReset(i) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'reset_task', taskIndex: i }));
 }
-
-function setTarget(i, minutes) {
-  tasks[i].target = minutes * 60;
-  renderMyTasks();
-  sendTasksToServer();
+function cmdSetTarget(i, minutes) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'set_target', taskIndex: i, target: minutes * 60 }));
 }
 
 // --- Render Teammates ---
 function renderTeammates() {
   const container = document.getElementById('teammates');
-  const others = roomUsers.filter(u => u.id !== myUserId);
+  const others = roomMembers.filter(m => m.key !== myMemberKey);
 
   if (others.length === 0) {
     container.innerHTML = '<div class="no-teammates">No one else in this room yet.<br>Share the room name to invite teammates.</div>';
@@ -806,33 +775,42 @@ function renderTeammates() {
   }
 
   container.innerHTML = '';
-  others.forEach(user => {
+  others.forEach(member => {
     const card = document.createElement('div');
-    card.className = 'teammate-card';
+    card.className = 'teammate-card' + (member.online ? '' : ' offline');
 
     let tasksHtml = '';
-    if (!user.tasks || user.tasks.length === 0) {
+    if (!member.tasks || member.tasks.length === 0) {
       tasksHtml = '<div style="color:var(--muted);font-size:13px;">Setting up priorities...</div>';
     } else {
-      tasksHtml = user.tasks.map((t, i) => {
+      tasksHtml = member.tasks.map((t, i) => {
         const cls = t.done ? 'done' : (t.running ? 'active' : '');
         let timer = fmt(t.elapsed);
         if (t.target > 0) timer += ` / ${fmt(t.target)}`;
+        let encHtml = '';
+        if (t.encouragements && t.encouragements.length > 0) {
+          encHtml = `<div class="mate-encouragements">${t.encouragements.map(e =>
+            `<div class="mate-enc">${esc(e.from)}: "${esc(e.message)}"</div>`
+          ).join('')}</div>`;
+        }
         return `<div class="mate-task ${cls}">
           <div class="mate-task-row">
             <div class="mate-task-num">${i + 1}</div>
             <div class="mate-task-name">${esc(t.name)}</div>
             <div class="mate-timer">${timer}</div>
           </div>
+          ${encHtml}
         </div>`;
       }).join('');
     }
 
     const isMihir = myName.toLowerCase() === 'mihir';
-    const removeBtn = isMihir ? `<button class="btn-remove-teammate" onclick="kickUser('${user.id}')">Remove</button>` : '';
+    const removeBtn = isMihir ? `<button class="btn-remove-teammate" onclick="kickUser('${member.key}')">Remove</button>` : '';
+    const statusLabel = member.online ? '' : ' <span style="font-weight:400;color:var(--muted);font-size:12px;">(away)</span>';
+    const dotClass = member.online ? 'on' : 'off';
 
     card.innerHTML = `
-      <div class="teammate-name"><span class="online-dot"></span> ${esc(user.name)}${removeBtn}</div>
+      <div class="teammate-name"><span class="online-dot ${dotClass}"></span> ${esc(member.name)}${statusLabel}${removeBtn}</div>
       ${tasksHtml}
     `;
     container.appendChild(card);
@@ -840,14 +818,14 @@ function renderTeammates() {
 }
 
 // --- Encouragement ---
-function showEncouragePrompt(userId, userName, taskName, taskIndex) {
+function showEncouragePrompt(targetMemberKey, memberName, taskName, taskIndex) {
   const container = document.getElementById('encourageContainer');
   const div = document.createElement('div');
   div.className = 'encourage-prompt';
   div.innerHTML = `
-    <p><strong>${esc(userName)}</strong> just finished:<br>"${esc(taskName)}"</p>
+    <p><strong>${esc(memberName)}</strong> just finished:<br>"${esc(taskName)}"</p>
     <div class="encourage-buttons">
-      ${ENCOURAGE_MSGS.map(m => `<button class="encourage-btn" onclick="sendEncourage('${userId}','${esc(m)}',${taskIndex},this)">${m}</button>`).join('')}
+      ${ENCOURAGE_MSGS.map(m => `<button class="encourage-btn" onclick="sendEncourage('${targetMemberKey}','${esc(m)}',${taskIndex},this)">${m}</button>`).join('')}
       <button class="encourage-dismiss" onclick="this.closest('.encourage-prompt').remove()">Dismiss</button>
     </div>
   `;
@@ -855,14 +833,14 @@ function showEncouragePrompt(userId, userName, taskName, taskIndex) {
   setTimeout(() => { if (div.parentNode) div.remove(); }, 15000);
 }
 
-function kickUser(targetUserId) {
+function kickUser(targetKey) {
   if (!ws || ws.readyState !== 1) return;
-  ws.send(JSON.stringify({ type: 'kick_user', targetUserId }));
+  ws.send(JSON.stringify({ type: 'kick_user', targetKey }));
 }
 
-function sendEncourage(toUserId, message, taskIndex, btn) {
+function sendEncourage(targetKey, message, taskIndex, btn) {
   if (!ws || ws.readyState !== 1) return;
-  ws.send(JSON.stringify({ type: 'encourage', toUserId, message, taskIndex }));
+  ws.send(JSON.stringify({ type: 'encourage', targetKey, message, taskIndex }));
   const prompt = btn.closest('.encourage-prompt');
   if (prompt) prompt.remove();
 }
@@ -885,12 +863,6 @@ function esc(str) {
   const d = document.createElement('div');
   d.textContent = str;
   return d.innerHTML;
-}
-
-function notifyBrowser(taskName) {
-  if (Notification.permission === 'granted') {
-    new Notification('Timer done', { body: taskName });
-  }
 }
 
 if ('Notification' in window && Notification.permission === 'default') {

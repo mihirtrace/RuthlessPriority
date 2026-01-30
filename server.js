@@ -42,44 +42,65 @@ app.get('/api/priorities/mihir', (req, res) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- Room state ---
-// rooms: { roomName: { users: { odId: { name, tasks, activeTask, ws } } } }
+// --- Persistent room state ---
+// rooms: { roomName: { members: { memberKey: { name, tasks, online, ws } } } }
+// memberKey = lowercase name (unique per room)
 const rooms = {};
+
+function getRoom(roomName) {
+  if (!rooms[roomName]) rooms[roomName] = { members: {} };
+  return rooms[roomName];
+}
+
+function getMemberKey(name) {
+  return name.toLowerCase().trim();
+}
+
+function buildRoomPayload(room) {
+  return {
+    type: 'room_state',
+    members: Object.entries(room.members).map(([key, m]) => ({
+      key,
+      name: m.name,
+      tasks: m.tasks,
+      online: m.online,
+    })),
+  };
+}
 
 function broadcastRoom(roomName) {
   const room = rooms[roomName];
   if (!room) return;
-  const payload = JSON.stringify({
-    type: 'room_state',
-    users: Object.entries(room.users).map(([id, u]) => ({
-      id,
-      name: u.name,
-      tasks: u.tasks,
-    })),
-  });
-  Object.values(room.users).forEach(u => {
-    if (u.ws.readyState === 1) u.ws.send(payload);
+  const payload = JSON.stringify(buildRoomPayload(room));
+  Object.values(room.members).forEach(m => {
+    if (m.online && m.ws && m.ws.readyState === 1) {
+      m.ws.send(payload);
+    }
   });
 }
 
-function broadcastEncouragement(roomName, fromName, toId, message) {
-  const room = rooms[roomName];
-  if (!room) return;
-  const target = room.users[toId];
-  if (target && target.ws.readyState === 1) {
-    target.ws.send(JSON.stringify({
-      type: 'encouragement',
-      from: fromName,
-      message,
-    }));
+// --- Server-side timer tick ---
+setInterval(() => {
+  for (const roomName in rooms) {
+    const room = rooms[roomName];
+    let changed = false;
+    for (const key in room.members) {
+      const member = room.members[key];
+      for (const task of member.tasks) {
+        if (task.running && !task.done) {
+          task.elapsed++;
+          changed = true;
+        }
+      }
+    }
+    if (changed) broadcastRoom(roomName);
   }
-}
+}, 1000);
 
-let nextId = 1;
-
+// --- WebSocket connections ---
 wss.on('connection', (ws) => {
-  const userId = String(nextId++);
   let currentRoom = null;
+  let memberKey = null;
 
   ws.on('message', (raw) => {
     let msg;
@@ -88,90 +109,194 @@ wss.on('connection', (ws) => {
     if (msg.type === 'join') {
       const roomName = (msg.room || 'default').toLowerCase().trim();
       const name = (msg.name || 'Anonymous').trim();
+      const key = getMemberKey(name);
       currentRoom = roomName;
+      memberKey = key;
 
-      if (!rooms[roomName]) rooms[roomName] = { users: {} };
-      rooms[roomName].users[userId] = {
-        name,
-        tasks: [],
-        ws,
-      };
+      const room = getRoom(roomName);
 
-      ws.send(JSON.stringify({ type: 'joined', userId }));
+      if (room.members[key]) {
+        // Returning member — restore state, update ws
+        const member = room.members[key];
+        member.online = true;
+        member.ws = ws;
+        member.name = name; // update casing if changed
+
+        // Send back their existing tasks so client can restore
+        ws.send(JSON.stringify({
+          type: 'joined',
+          memberKey: key,
+          yourTasks: member.tasks,
+        }));
+      } else {
+        // New member
+        room.members[key] = {
+          name,
+          tasks: [],
+          online: true,
+          ws,
+        };
+        ws.send(JSON.stringify({
+          type: 'joined',
+          memberKey: key,
+          yourTasks: [],
+        }));
+      }
+
       broadcastRoom(roomName);
     }
 
-    if (msg.type === 'update_tasks' && currentRoom) {
-      const user = rooms[currentRoom]?.users[userId];
-      if (user) {
-        user.tasks = msg.tasks;
+    if (msg.type === 'set_tasks' && currentRoom && memberKey) {
+      const room = rooms[currentRoom];
+      const member = room?.members[memberKey];
+      if (member) {
+        // Only set tasks if member has no tasks yet (first time)
+        // or explicitly resetting
+        member.tasks = msg.tasks.map(t => ({
+          name: t.name,
+          elapsed: t.elapsed || 0,
+          target: t.target || 0,
+          running: false,
+          done: false,
+          encouragements: [],
+        }));
         broadcastRoom(currentRoom);
       }
     }
 
-    if (msg.type === 'task_done' && currentRoom) {
-      // Notify others that this user finished a task
+    if (msg.type === 'start_task' && currentRoom && memberKey) {
       const room = rooms[currentRoom];
-      if (!room) return;
-      const user = room.users[userId];
-      if (!user) return;
-      user.tasks = msg.tasks;
-      const payload = JSON.stringify({
-        type: 'task_completed',
-        userId,
-        userName: user.name,
-        taskName: msg.taskName,
-        taskIndex: msg.taskIndex,
-      });
-      Object.entries(room.users).forEach(([id, u]) => {
-        if (id !== userId && u.ws.readyState === 1) {
-          u.ws.send(payload);
-        }
-      });
-      broadcastRoom(currentRoom);
+      const member = room?.members[memberKey];
+      if (member) {
+        member.tasks.forEach((t, j) => {
+          t.running = j === msg.taskIndex && !t.done;
+        });
+        broadcastRoom(currentRoom);
+      }
     }
 
-    if (msg.type === 'kick_user' && currentRoom) {
-      // Only allow the room creator (first joiner / "mihir") to kick
-      const kicker = rooms[currentRoom]?.users[userId];
+    if (msg.type === 'pause_task' && currentRoom && memberKey) {
+      const room = rooms[currentRoom];
+      const member = room?.members[memberKey];
+      if (member && member.tasks[msg.taskIndex]) {
+        member.tasks[msg.taskIndex].running = false;
+        broadcastRoom(currentRoom);
+      }
+    }
+
+    if (msg.type === 'done_task' && currentRoom && memberKey) {
+      const room = rooms[currentRoom];
+      const member = room?.members[memberKey];
+      if (member && member.tasks[msg.taskIndex]) {
+        const task = member.tasks[msg.taskIndex];
+        task.running = false;
+        task.done = true;
+
+        // Notify other online members
+        const payload = JSON.stringify({
+          type: 'task_completed',
+          memberKey,
+          memberName: member.name,
+          taskName: task.name,
+          taskIndex: msg.taskIndex,
+        });
+        Object.entries(room.members).forEach(([k, m]) => {
+          if (k !== memberKey && m.online && m.ws && m.ws.readyState === 1) {
+            m.ws.send(payload);
+          }
+        });
+        // Also queue encouragement prompt for offline members when they come back
+        // (stored as pendingNotifications)
+        Object.entries(room.members).forEach(([k, m]) => {
+          if (k !== memberKey && !m.online) {
+            if (!m.pendingNotifications) m.pendingNotifications = [];
+            m.pendingNotifications.push({
+              type: 'task_completed',
+              memberKey,
+              memberName: member.name,
+              taskName: task.name,
+              taskIndex: msg.taskIndex,
+            });
+          }
+        });
+
+        broadcastRoom(currentRoom);
+      }
+    }
+
+    if (msg.type === 'reset_task' && currentRoom && memberKey) {
+      const room = rooms[currentRoom];
+      const member = room?.members[memberKey];
+      if (member && member.tasks[msg.taskIndex]) {
+        member.tasks[msg.taskIndex].elapsed = 0;
+        member.tasks[msg.taskIndex].target = 0;
+        member.tasks[msg.taskIndex].running = false;
+        broadcastRoom(currentRoom);
+      }
+    }
+
+    if (msg.type === 'set_target' && currentRoom && memberKey) {
+      const room = rooms[currentRoom];
+      const member = room?.members[memberKey];
+      if (member && member.tasks[msg.taskIndex]) {
+        member.tasks[msg.taskIndex].target = msg.target;
+        broadcastRoom(currentRoom);
+      }
+    }
+
+    if (msg.type === 'kick_user' && currentRoom && memberKey) {
+      const room = rooms[currentRoom];
+      const kicker = room?.members[memberKey];
       if (kicker && kicker.name.toLowerCase() === 'mihir') {
-        const targetId = msg.targetUserId;
-        const target = rooms[currentRoom]?.users[targetId];
+        const targetKey = msg.targetKey;
+        const target = room.members[targetKey];
         if (target) {
-          target.ws.send(JSON.stringify({ type: 'kicked' }));
-          target.ws.close();
-          delete rooms[currentRoom].users[targetId];
+          if (target.online && target.ws && target.ws.readyState === 1) {
+            target.ws.send(JSON.stringify({ type: 'kicked' }));
+            target.ws.close();
+          }
+          delete room.members[targetKey];
           broadcastRoom(currentRoom);
         }
       }
     }
 
-    if (msg.type === 'encourage' && currentRoom) {
-      const user = rooms[currentRoom]?.users[userId];
-      if (user) {
-        // Send encouragement with task index so it attaches to the right task
-        const room = rooms[currentRoom];
-        const target = room.users[msg.toUserId];
-        if (target && target.ws.readyState === 1) {
+    if (msg.type === 'encourage' && currentRoom && memberKey) {
+      const room = rooms[currentRoom];
+      const sender = room?.members[memberKey];
+      const targetKey = msg.targetKey;
+      const target = room?.members[targetKey];
+      if (sender && target && typeof msg.taskIndex === 'number' && target.tasks[msg.taskIndex]) {
+        // Persist the encouragement on the task
+        target.tasks[msg.taskIndex].encouragements.push({
+          from: sender.name,
+          message: msg.message,
+        });
+
+        // Send live notification if target is online
+        if (target.online && target.ws && target.ws.readyState === 1) {
           target.ws.send(JSON.stringify({
             type: 'encouragement',
-            from: user.name,
+            from: sender.name,
             message: msg.message,
             taskIndex: msg.taskIndex,
           }));
         }
+
+        broadcastRoom(currentRoom);
       }
     }
   });
 
   ws.on('close', () => {
-    if (currentRoom && rooms[currentRoom]) {
-      delete rooms[currentRoom].users[userId];
-      if (Object.keys(rooms[currentRoom].users).length === 0) {
-        delete rooms[currentRoom];
-      } else {
-        broadcastRoom(currentRoom);
+    if (currentRoom && rooms[currentRoom] && memberKey) {
+      const member = rooms[currentRoom].members[memberKey];
+      if (member) {
+        member.online = false;
+        member.ws = null;
+        // Don't delete the member — they persist
       }
+      broadcastRoom(currentRoom);
     }
   });
 });
