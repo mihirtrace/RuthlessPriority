@@ -42,8 +42,18 @@ app.get('/api/priorities/mihir', (req, res) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// --- Helpers ---
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+function yesterdayStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
 // --- Persistent room state ---
-// rooms: { roomName: { members: { memberKey: { name, tasks, online, ws } } } }
+// rooms: { roomName: { members: { memberKey: { name, tasks, online, ws, points, streak, lastCompletedDate } } } }
 // memberKey = lowercase name (unique per room)
 const rooms = {};
 
@@ -64,6 +74,8 @@ function buildRoomPayload(room) {
       name: m.name,
       tasks: m.tasks,
       online: m.online,
+      points: m.points || 0,
+      streak: m.streak || 0,
     })),
   };
 }
@@ -135,6 +147,9 @@ wss.on('connection', (ws) => {
           tasks: [],
           online: true,
           ws,
+          points: 0,
+          streak: 0,
+          lastCompletedDate: null,
         };
         ws.send(JSON.stringify({
           type: 'joined',
@@ -192,6 +207,37 @@ wss.on('connection', (ws) => {
         task.running = false;
         task.done = true;
 
+        // Award points for completing a task
+        if (!member.points) member.points = 0;
+        member.points += 10;
+
+        // Check if all tasks are done
+        const allDone = member.tasks.length > 0 && member.tasks.every(t => t.done);
+        if (allDone) {
+          member.points += 50; // bonus
+          const today = todayStr();
+          if (member.lastCompletedDate !== today) {
+            if (member.lastCompletedDate === yesterdayStr()) {
+              member.streak = (member.streak || 0) + 1;
+            } else {
+              member.streak = 1;
+            }
+            member.lastCompletedDate = today;
+          }
+
+          // Broadcast celebration to all room members
+          const celebPayload = JSON.stringify({
+            type: 'all_done_celebration',
+            memberKey,
+            memberName: member.name,
+          });
+          Object.values(room.members).forEach(m => {
+            if (m.online && m.ws && m.ws.readyState === 1) {
+              m.ws.send(celebPayload);
+            }
+          });
+        }
+
         // Notify other online members
         const payload = JSON.stringify({
           type: 'task_completed',
@@ -206,7 +252,6 @@ wss.on('connection', (ws) => {
           }
         });
         // Also queue encouragement prompt for offline members when they come back
-        // (stored as pendingNotifications)
         Object.entries(room.members).forEach(([k, m]) => {
           if (k !== memberKey && !m.online) {
             if (!m.pendingNotifications) m.pendingNotifications = [];
@@ -272,6 +317,10 @@ wss.on('connection', (ws) => {
           from: sender.name,
           message: msg.message,
         });
+
+        // Award +5 points to the recipient
+        if (!target.points) target.points = 0;
+        target.points += 5;
 
         // Send live notification if target is online
         if (target.online && target.ws && target.ws.readyState === 1) {

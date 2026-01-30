@@ -494,6 +494,90 @@
     50% { opacity: 0.5; }
   }
   .task.active .task-num { animation: pulse 2s ease-in-out infinite; }
+
+  /* --- Rewards: Points & Streaks --- */
+  .rewards-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    padding: 10px 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .rewards-row .reward-label {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .points-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--teal);
+    background: rgba(24,146,154,0.12);
+    padding: 3px 10px;
+    border-radius: 12px;
+  }
+  .streak-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #f39c12;
+    background: rgba(243,156,18,0.12);
+    padding: 3px 10px;
+    border-radius: 12px;
+  }
+  .mate-rewards {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  /* --- Celebration Overlay --- */
+  .celebration-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 300;
+    animation: fadeIn 0.3s ease-out;
+  }
+  .celebration-box {
+    text-align: center;
+    padding: 48px;
+    animation: celebBounce 0.5s ease-out;
+  }
+  .celebration-emoji {
+    font-size: 72px;
+    margin-bottom: 16px;
+  }
+  .celebration-text {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .celebration-sub {
+    font-size: 16px;
+    color: var(--muted);
+    margin-bottom: 24px;
+  }
+  .celebration-points {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--teal);
+  }
+  @keyframes celebBounce {
+    0% { transform: scale(0.5); opacity: 0; }
+    60% { transform: scale(1.1); }
+    100% { transform: scale(1); opacity: 1; }
+  }
 </style>
 </head>
 <body>
@@ -540,6 +624,9 @@
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
+
+<!-- Celebration Overlay -->
+<div id="celebrationOverlay"></div>
 
 <script>
 const PRESETS = [5, 15, 25, 45, 60];
@@ -642,6 +729,10 @@ function connect() {
     if (msg.type === 'encouragement') {
       showToast(`${msg.from}: "${msg.message}"`);
     }
+
+    if (msg.type === 'all_done_celebration') {
+      showCelebration(msg.memberName, msg.memberKey === myMemberKey);
+    }
   };
 
   ws.onclose = () => {
@@ -682,12 +773,28 @@ function setTasks() {
 }
 
 // --- Render My Tasks (from server state) ---
+function getMyRewards() {
+  const me = roomMembers.find(m => m.key === myMemberKey);
+  return me ? { points: me.points || 0, streak: me.streak || 0 } : { points: 0, streak: 0 };
+}
+
 function renderMyTasks() {
   const container = document.getElementById('myTasks');
   const tasks = getMyTasks();
   if (tasks.length === 0) { container.innerHTML = ''; return; }
 
+  const { points, streak } = getMyRewards();
   container.innerHTML = '';
+
+  // Rewards row
+  const rewardsDiv = document.createElement('div');
+  rewardsDiv.className = 'rewards-row';
+  rewardsDiv.innerHTML = `
+    <span class="points-badge">${points} pts</span>
+    ${streak > 0 ? `<span class="streak-badge">🔥 ${streak} day${streak > 1 ? 's' : ''}</span>` : ''}
+    <span class="reward-label">+10 per task · +50 all done · +5 per cheer received</span>
+  `;
+  container.appendChild(rewardsDiv);
   tasks.forEach((t, i) => {
     const div = document.createElement('div');
     div.className = 'task' + (t.running ? ' active' : '') + (t.done ? ' done' : '');
@@ -808,9 +915,15 @@ function renderTeammates() {
     const removeBtn = isMihir ? `<button class="btn-remove-teammate" onclick="kickUser('${member.key}')">Remove</button>` : '';
     const statusLabel = member.online ? '' : ' <span style="font-weight:400;color:var(--muted);font-size:12px;">(away)</span>';
     const dotClass = member.online ? 'on' : 'off';
+    const mPts = member.points || 0;
+    const mStreak = member.streak || 0;
+    const rewardsBadges = `<span class="mate-rewards">
+      <span class="points-badge">${mPts} pts</span>
+      ${mStreak > 0 ? `<span class="streak-badge">🔥 ${mStreak}</span>` : ''}
+    </span>`;
 
     card.innerHTML = `
-      <div class="teammate-name"><span class="online-dot ${dotClass}"></span> ${esc(member.name)}${statusLabel}${removeBtn}</div>
+      <div class="teammate-name"><span class="online-dot ${dotClass}"></span> ${esc(member.name)}${statusLabel}${rewardsBadges}${removeBtn}</div>
       ${tasksHtml}
     `;
     container.appendChild(card);
@@ -850,6 +963,24 @@ function showToast(text) {
   toast.innerHTML = text;
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 4000);
+}
+
+function showCelebration(memberName, isMe) {
+  const overlay = document.getElementById('celebrationOverlay');
+  const emoji = isMe ? '🏆' : '🎉';
+  const text = isMe ? 'All tasks crushed!' : `${esc(memberName)} crushed all tasks!`;
+  const sub = isMe ? 'You earned +50 bonus points' : 'Send them some love!';
+  overlay.innerHTML = `
+    <div class="celebration-overlay" onclick="this.remove()">
+      <div class="celebration-box">
+        <div class="celebration-emoji">${emoji}</div>
+        <div class="celebration-text">${text}</div>
+        <div class="celebration-sub">${sub}</div>
+        <div class="celebration-points">${isMe ? '+50 pts' : ''}</div>
+      </div>
+    </div>
+  `;
+  setTimeout(() => { overlay.innerHTML = ''; }, 5000);
 }
 
 // --- Helpers ---
